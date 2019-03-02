@@ -34,7 +34,7 @@ module.exports = {
 					if (arguments[0] instanceof Error) {
 						return handleError(arguments[0]);
 					}
-					var _args = Array.prototype.slice.call(arguments),
+					var _args = Array.prototype.slice.call(arguments.length ? arguments : hookArgs),
 						currPre,
 						preArgs;
 					if (_args.length && !(arguments[0] == null && typeof lastArg === 'function')) hookArgs = _args;
@@ -47,28 +47,24 @@ module.exports = {
 						if (currPre.length < 1)
 							throw new Error('Your pre must have a next argument -- e.g., function (next, ...)');
 						preArgs = (currPre.isAsync ? [once(_next), once(_asyncsDone)] : [once(_next)]).concat(hookArgs);
-						return currPre.apply(self, preArgs);
+						var ret = currPre.apply(self, preArgs);
+						return hookArgs[0];
 					} else if (!proto[name].numAsyncPres) {
-						return _done.apply(self, hookArgs);
+						_done.apply(self, hookArgs);
+						return hookArgs;
 					}
 				},
 				_done = function() {
-					var args_ = Array.prototype.slice.call(arguments),
-						ret,
-						total_,
-						current_,
-						next_,
-						done_,
-						postArgs;
+					var args_ = arguments.length ? Array.prototype.slice.call(arguments) : hookArgs;
+					var ret, total_, current_, next_, done_, postArgs;
 
 					if (_current === _total) {
 						next_ = function() {
 							if (arguments[0] instanceof Error) {
 								return handleError(arguments[0]);
 							}
-							var args_ = Array.prototype.slice.call(arguments, 1),
-								currPost,
-								postArgs;
+							var args_ = arguments.length ? Array.prototype.slice.call(arguments) : hookArgs;
+							var currPost, postArgs;
 							if (args_.length) hookArgs = args_;
 							if (++current_ < total_) {
 								currPost = posts[current_];
@@ -77,7 +73,8 @@ module.exports = {
 										'Your post must have a next argument -- e.g., function (next, ...)'
 									);
 								postArgs = [once(next_)].concat(hookArgs);
-								return currPost.apply(self, postArgs);
+								var ret = currPost.apply(self, postArgs);
+								return hookArgs[0];
 							} else if (typeof lastArg === 'function') {
 								// All post handlers are done, call original callback function
 								return lastArg.apply(self, arguments);
@@ -94,7 +91,7 @@ module.exports = {
 						current_ = -1;
 						ret = fn.apply(self, args_); // Execute wrapped function, post handlers come afterward
 
-						if (total_ && typeof lastArg !== 'function') return next_(); // no callback provided, execute next_() manually
+						if (total_ && typeof lastArg !== 'function') return next_(ret); // no callback provided, execute next_() manually
 						return ret;
 					}
 				};
