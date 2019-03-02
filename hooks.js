@@ -72,9 +72,17 @@ module.exports = {
 									throw new Error(
 										'Your post must have a next argument -- e.g., function (next, ...)'
 									);
-								postArgs = [once(next_)].concat(hookArgs);
-								var ret = currPost.apply(self, postArgs);
-								return hookArgs[0];
+								if (hookArgs && hookArgs[0] instanceof Promise) {
+									return hookArgs[0].then(data => {
+										postArgs = [once(next_)].concat(data);
+										var ret = currPost.apply(self, postArgs);
+										return data;
+									});
+								} else {
+									postArgs = [once(next_)].concat(hookArgs);
+									var ret = currPost.apply(self, postArgs);
+									return hookArgs[0];
+								}
 							} else if (typeof lastArg === 'function') {
 								// All post handlers are done, call original callback function
 								return lastArg.apply(self, arguments);
