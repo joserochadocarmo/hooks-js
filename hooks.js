@@ -1,184 +1,78 @@
-// TODO Add in pre and post skipping options
-module.exports = {
-	/**
-	 *  Declares a new hook to which you can add pres and posts
-	 *  @param {String} name of the function
-	 *  @param {Function} the method
-	 *  @param {Function} the error handler callback
-	 */
-	hook: function(name, fn, errorCb) {
-		if (arguments.length === 1 && typeof name === 'object') {
-			for (var k in name) {
-				// `name` is a hash of hookName->hookFn
-				this.hook(k, name[k]);
-			}
-			return;
-		}
+'use strict';
+const HOOKS = Symbol('Property for saving async hooks');
 
-		var proto = this.prototype || this,
-			pres = (proto._pres = proto._pres || {}),
-			posts = (proto._posts = proto._posts || {});
-		pres[name] = pres[name] || [];
-		posts[name] = posts[name] || [];
-
-		proto[name] = function() {
-			var self = this,
-				hookArgs, // arguments eventually passed to the hook - are mutable
-				lastArg = arguments[arguments.length - 1],
-				pres = this._pres[name],
-				posts = this._posts[name],
-				_total = pres.length,
-				_current = -1,
-				_asyncsLeft = proto[name].numAsyncPres,
-				_next = function() {
-					if (arguments[0] instanceof Error) {
-						return handleError(arguments[0]);
-					}
-					var _args = Array.prototype.slice.call(arguments.length ? arguments : hookArgs),
-						currPre,
-						preArgs;
-					if (_args.length && !(arguments[0] == null && typeof lastArg === 'function')) hookArgs = _args;
-					if (++_current < _total) {
-						currPre = pres[_current];
-						if (currPre.isAsync && currPre.length < 2)
-							throw new Error(
-								'Your pre must have next and done arguments -- e.g., function (next, done, ...)'
-							);
-						if (currPre.length < 1)
-							throw new Error('Your pre must have a next argument -- e.g., function (next, ...)');
-						preArgs = (currPre.isAsync ? [once(_next), once(_asyncsDone)] : [once(_next)]).concat(hookArgs);
-						var ret = currPre.apply(self, preArgs);
-						return hookArgs[0];
-					} else if (!proto[name].numAsyncPres) {
-						_done.apply(self, hookArgs);
-						return hookArgs;
-					}
-				},
-				_done = function() {
-					var args_ = arguments.length ? Array.prototype.slice.call(arguments) : hookArgs;
-					var ret, total_, current_, next_, done_, postArgs;
-
-					if (_current === _total) {
-						next_ = function() {
-							if (arguments[0] instanceof Error) {
-								return handleError(arguments[0]);
-							}
-							var args_ = arguments.length ? Array.prototype.slice.call(arguments) : hookArgs;
-							var currPost, postArgs;
-							if (args_.length) hookArgs = args_;
-							if (++current_ < total_) {
-								currPost = posts[current_];
-								if (currPost.length < 1)
-									throw new Error(
-										'Your post must have a next argument -- e.g., function (next, ...)'
-									);
-								if (hookArgs && hookArgs[0] instanceof Promise) {
-									return hookArgs[0].then(data => {
-										postArgs = [once(next_)].concat(data);
-										var ret = currPost.apply(self, postArgs);
-										return data;
-									});
-								} else {
-									postArgs = [once(next_)].concat(hookArgs);
-									var ret = currPost.apply(self, postArgs);
-									return hookArgs[0];
-								}
-							} else if (typeof lastArg === 'function') {
-								// All post handlers are done, call original callback function
-								return lastArg.apply(self, arguments);
-							}
-						};
-
-						// We are assuming that if the last argument provided to the wrapped function is a function, it was expecting
-						// a callback.  We trap that callback and wait to call it until all post handlers have finished.
-						if (typeof lastArg === 'function') {
-							args_[args_.length - 1] = once(next_);
-						}
-
-						total_ = posts.length;
-						current_ = -1;
-						ret = fn.apply(self, args_); // Execute wrapped function, post handlers come afterward
-
-						if (total_ && typeof lastArg !== 'function') return next_(ret); // no callback provided, execute next_() manually
-						return ret;
-					}
-				};
-			if (_asyncsLeft) {
-				function _asyncsDone(err) {
-					if (err && err instanceof Error) {
-						return handleError(err);
-					}
-					--_asyncsLeft || _done.apply(self, hookArgs);
-				}
-			}
-			function handleError(err) {
-				if ('function' == typeof lastArg) return lastArg(err);
-				if (errorCb) return errorCb.call(self, err);
-				throw err;
-			}
-			return _next.apply(this, arguments);
-		};
-
-		proto[name].numAsyncPres = 0;
-
-		return this;
-	},
-
-	pre: function(name, isAsync, fn, errorCb) {
-		if ('boolean' !== typeof arguments[1]) {
-			errorCb = fn;
-			fn = isAsync;
-			isAsync = false;
-		}
-		var proto = this.prototype || this,
-			pres = (proto._pres = proto._pres || {});
-
-		this._lazySetupHooks(proto, name, errorCb);
-
-		if ((fn.isAsync = isAsync)) {
-			proto[name].numAsyncPres++;
-		}
-
-		(pres[name] = pres[name] || []).push(fn);
-		return this;
-	},
-	post: function(name, isAsync, fn) {
-		if (arguments.length === 2) {
-			fn = isAsync;
-			isAsync = false;
-		}
-		var proto = this.prototype || this,
-			posts = (proto._posts = proto._posts || {});
-
-		this._lazySetupHooks(proto, name);
-		(posts[name] = posts[name] || []).push(fn);
-		return this;
-	},
-	removePre: function(name, fnToRemove) {
-		var proto = this.prototype || this,
-			pres = proto._pres || (proto._pres || {});
-		if (!pres[name]) return this;
-		if (arguments.length === 1) {
-			// Remove all pre callbacks for hook `name`
-			pres[name].length = 0;
-		} else {
-			pres[name] = pres[name].filter(function(currFn) {
-				return currFn !== fnToRemove;
-			});
-		}
-		return this;
-	},
-	_lazySetupHooks: function(proto, methodName, errorCb) {
-		if ('undefined' === typeof proto[methodName].numAsyncPres) {
-			this.hook(methodName, proto[methodName], errorCb);
-		}
-	},
+const toCamelCase = function(str) {
+	return str.replace(/[-_](\w)/g, function(matches, letter) {
+		return letter.toUpperCase();
+	});
 };
 
-function once(fn, scope) {
-	return function fnWrapper() {
-		if (fnWrapper.hookCalled) return;
-		fnWrapper.hookCalled = true;
-		return fn.apply(scope, arguments);
+const create = function(ctx, name) {
+	const method = ctx[name];
+	const hooks = ctx[HOOKS] || (ctx[HOOKS] = {});
+	const methodHooks = (hooks[name] = {
+		pre: ctx[toCamelCase(`will-${name}`)],
+		will: [],
+		did: [],
+		post: ctx[toCamelCase(`did-${name}`)],
+	});
+
+	ctx[name] = function hooksWrapper(...args) {
+		const will = methodHooks.pre ? [methodHooks.pre].concat(methodHooks.will) : methodHooks.will;
+		const did = methodHooks.post ? methodHooks.did.concat(methodHooks.post) : methodHooks.did;
+
+		//return Promise.reduce(will, (res, func) => func.apply(ctx, args), {})
+		//  .then(() => method.apply(ctx, args))
+		//  .then(res =>
+		//    Promise
+		// null in the end to protect from undefined values
+		//      .reduce(did, (res, func) => func.call(ctx, res), res || null)
+		//  );
+
+		let result = [...will, method, ...did].reduce((accumulatorPromise, fn) => {
+			return accumulatorPromise.then(result => {
+				//update args with new values
+				result && (args[0] = result);
+				return fn.apply(ctx, args);
+			});
+		}, Promise.resolve());
+
+		return result.then(e => {
+			return e;
+		});
 	};
-}
+
+	return methodHooks;
+};
+
+const get = function(ctx, name) {
+	if (!ctx[name] || typeof ctx[name] !== 'function') {
+		throw new Error(`There is no '${name}' method`);
+	}
+
+	const hooks = ctx[HOOKS];
+
+	if (hooks && hooks[name]) {
+		return hooks[name];
+	}
+
+	return create(ctx, name);
+};
+
+const will = function(name, hook) {
+	const hooks = get(this, name);
+	hook && hooks.will.push(hook);
+	return this;
+};
+
+const did = function(name, hook) {
+	const hooks = get(this, name);
+	hook && hooks.did.push(hook);
+	return this;
+};
+
+module.exports = ctx => {
+	ctx.will = will;
+	ctx.did = did;
+	return ctx;
+};
