@@ -29,7 +29,7 @@ const create = function(ctx, name) {
 		//      .reduce(did, (res, func) => func.call(ctx, res), res || null)
 		//  );
 
-		let result = [...will, method, ...did].reduce((accumulatorPromise, fn) => {
+		let result = [...did, method, ...will].reduce((accumulatorPromise, fn) => {
 			return accumulatorPromise.then(result => {
 				//update args with new values
 				result && (args[0] = result);
